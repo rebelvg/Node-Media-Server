@@ -52,8 +52,8 @@ export function getStreams(req, res, next) {
         channel,
         connectId: session.id,
         connectCreated: session.connectTime,
-        bytes: session.socket.bytesRead,
-        ip: session.socket.remoteAddress,
+        bytes: session.stats.bytesRead,
+        ip: session.stats.remoteAddress,
         protocol: 'rtmp',
         video: {
           codecId: session.videoCodec,
@@ -79,8 +79,8 @@ export function getStreams(req, res, next) {
           channel,
           connectId: session.id,
           connectCreated: session.connectTime,
-          bytes: session.socket.bytesWritten,
-          ip: session.socket.remoteAddress,
+          bytes: session.stats.bytesWritten,
+          ip: session.stats.remoteAddress,
           protocol: 'rtmp',
           meta: session.getMetadata(),
         });
@@ -92,8 +92,8 @@ export function getStreams(req, res, next) {
           channel,
           connectId: session.id,
           connectCreated: session.connectTime,
-          bytes: session.req.connection.bytesWritten,
-          ip: session.req.connection.remoteAddress,
+          bytes: session.stats.bytesWritten,
+          ip: session.stats.remoteAddress,
           protocol: session.protocol,
           meta: session.getMetadata(),
         });

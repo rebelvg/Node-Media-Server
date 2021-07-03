@@ -71,7 +71,8 @@ const VIDEO_CODEC_NAME = [
 
 export class NodeRtmpSession extends EventEmitter {
   protected readonly bp: BufferPool;
-  public players: Set<string>;
+  public rtmpPlayers: Set<string>;
+  public httpPlayers: Set<string>;
   private inChunkSize: number;
   private outChunkSize: number;
   private previousChunkMessage: any;
@@ -116,7 +117,7 @@ export class NodeRtmpSession extends EventEmitter {
   constructor(
     public readonly id: string,
     config: INodeMediaServerConfig,
-    public readonly socket: net.Socket,
+    private readonly socket: net.Socket,
     protected readonly sessions: Map<string, BaseSession>,
     protected readonly publishers: Map<string, string>,
     protected readonly idlePlayers: Set<string>,
@@ -162,6 +163,14 @@ export class NodeRtmpSession extends EventEmitter {
         console.log(e);
       }
     });
+  }
+
+  public get stats() {
+    return {
+      bytesRead: this.socket.bytesRead,
+      bytesWritten: this.socket.bytesWritten,
+      remoteAddress: this.socket.remoteAddress,
+    };
   }
 
   public addMetadata(data) {
@@ -720,18 +729,19 @@ export class NodeRtmpSession extends EventEmitter {
       }
     }
 
-    for (const playerId of this.players) {
+    for (const playerId of this.rtmpPlayers) {
       const session = this.sessions.get(playerId);
 
       if (session instanceof NodeRtmpSession) {
         rtmpMessage.writeUInt32LE(session.playStreamId, 8);
         session.socket.write(rtmpMessage);
       }
+    }
+    for (const playerId of this.httpPlayers) {
+      const session = this.sessions.get(playerId);
 
       if (session instanceof NodeFlvSession) {
-        session.res.write(flvMessage, null, (e) => {
-          // websocket will throw an error if cb is not set on close
-        });
+        session.write(flvMessage);
       }
     }
   }
@@ -784,18 +794,20 @@ export class NodeRtmpSession extends EventEmitter {
       }
     }
 
-    for (const playerId of this.players) {
+    for (const playerId of this.rtmpPlayers) {
       const session = this.sessions.get(playerId);
 
       if (session instanceof NodeRtmpSession) {
         rtmpMessage.writeUInt32LE(session.playStreamId, 8);
         session.socket.write(rtmpMessage);
       }
+    }
+
+    for (const playerId of this.httpPlayers) {
+      const session = this.sessions.get(playerId);
 
       if (session instanceof NodeFlvSession) {
-        session.res.write(flvMessage, null, (e) => {
-          // websocket will throw an error if cb is not set on close
-        });
+        session.write(flvMessage);
       }
     }
   }
@@ -1040,7 +1052,8 @@ export class NodeRtmpSession extends EventEmitter {
       );
       this.publishers.set(this.streamPath, this.id);
       this.isPublishing = true;
-      this.players = new Set();
+      this.rtmpPlayers = new Set();
+      this.httpPlayers = new Set();
       this.sendStatusMessage(
         this.publishStreamId,
         'status',
@@ -1107,7 +1120,7 @@ export class NodeRtmpSession extends EventEmitter {
       }
       const publisherPath = this.publishers.get(this.streamPath);
       const publisher = this.sessions.get(publisherPath);
-      const players = publisher.players;
+      const rtmpPlayers = publisher.rtmpPlayers;
 
       this.isPlaying = true;
       //metaData
@@ -1175,7 +1188,7 @@ export class NodeRtmpSession extends EventEmitter {
           ' streamId:' +
           this.playStreamId,
       );
-      players.add(this.id);
+      rtmpPlayers.add(this.id);
       this.nodeEvent.emit(
         'postPlay',
         this.id,
@@ -1208,7 +1221,7 @@ export class NodeRtmpSession extends EventEmitter {
       const publisherPath = this.publishers.get(this.streamPath);
 
       if (publisherPath) {
-        this.sessions.get(publisherPath).players.delete(this.id);
+        this.sessions.get(publisherPath).rtmpPlayers.delete(this.id);
       }
       this.isPlaying = false;
       this.playStreamId = del ? 0 : this.playStreamId;
@@ -1227,7 +1240,8 @@ export class NodeRtmpSession extends EventEmitter {
         'NetStream.Unpublish.Success',
         `${this.streamPath} is now unpublished.`,
       );
-      for (const playerId of this.players) {
+
+      for (const playerId of this.rtmpPlayers) {
         const player = this.sessions.get(playerId);
 
         if (player instanceof NodeRtmpSession) {
@@ -1238,6 +1252,10 @@ export class NodeRtmpSession extends EventEmitter {
             'stream is now unpublished.',
           );
         }
+      }
+
+      for (const playerId of this.httpPlayers) {
+        const player = this.sessions.get(playerId);
 
         if (player instanceof NodeFlvSession) {
           player.stop();
@@ -1245,18 +1263,29 @@ export class NodeRtmpSession extends EventEmitter {
       }
 
       //let the players to idlePlayers
-      for (const playerId of this.players) {
+      for (const playerId of this.rtmpPlayers) {
         const player = this.sessions.get(playerId);
 
         this.idlePlayers.add(playerId);
         player.isPlaying = false;
         player.isIdling = true;
+
         if (player instanceof NodeRtmpSession) {
           player.sendStreamStatus(STREAM_EOF, player.playStreamId);
         }
       }
 
-      this.players.clear();
+      for (const playerId of this.httpPlayers) {
+        const player = this.sessions.get(playerId);
+
+        this.idlePlayers.add(playerId);
+        player.isPlaying = false;
+        player.isIdling = true;
+      }
+
+      this.rtmpPlayers.clear();
+      this.httpPlayers.clear();
+
       this.publishers.delete(this.streamPath);
       this.isPublishing = false;
       this.publishStreamId = del ? 0 : this.publishStreamId;

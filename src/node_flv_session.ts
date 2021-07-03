@@ -28,8 +28,8 @@ export class NodeFlvSession extends EventEmitter {
 
   constructor(
     public readonly id: string,
-    public readonly req: IncomingMessage,
-    public readonly res: ServerResponse,
+    private readonly req: IncomingMessage,
+    private readonly res: ServerResponse,
     protected readonly sessions: Map<string, BaseSession>,
     protected readonly publishers: Map<string, string>,
     protected readonly idlePlayers: Set<string>,
@@ -57,11 +57,38 @@ export class NodeFlvSession extends EventEmitter {
       this.res.on('message', this.onReqData.bind(this));
       this.res.on('close', this.onReqClose.bind(this));
       this.res.on('error', this.onReqError.bind(this));
-      this.res.write = this.res['send'];
+
       this.res.end = this.res['close'];
     }
 
     this.sessionType = SessionTypeEnum.ACCEPTED;
+  }
+
+  public get stats() {
+    return {
+      bytesWritten: this.req.socket.bytesWritten,
+      remoteAddress: this.req.socket.remoteAddress,
+    };
+  }
+
+  public write(data: Buffer) {
+    switch (this.protocol) {
+      case ProtocolsEnum.HTTP: {
+        this.res.write(data);
+
+        break;
+      }
+      case ProtocolsEnum.WS: {
+        this.res['send'](data, null, () => {
+          // ws requires a callback
+        });
+
+        break;
+      }
+      default: {
+        break;
+      }
+    }
   }
 
   public addMetadata(data) {
@@ -154,7 +181,7 @@ export class NodeFlvSession extends EventEmitter {
     const publisherId = this.publishers.get(this.streamPath);
 
     if (publisherId) {
-      this.sessions.get(publisherId).players.delete(this.id);
+      this.sessions.get(publisherId).httpPlayers.delete(this.id);
       this.nodeEvent.emit(
         'donePlay',
         this.id,
@@ -193,9 +220,9 @@ export class NodeFlvSession extends EventEmitter {
 
     const publisherId = this.publishers.get(this.streamPath);
     const publisher = this.sessions.get(publisherId);
-    const players = publisher.players;
+    const httpPlayers = publisher.httpPlayers;
 
-    players.add(this.id);
+    httpPlayers.add(this.id);
 
     if (this.res.setHeader) {
       this.res.setHeader('Content-Type', 'video/x-flv');
