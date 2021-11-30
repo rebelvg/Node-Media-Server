@@ -32,6 +32,8 @@ export class NodeHttpServer {
 
     this.expressApp = express();
 
+    this.expressApp.set('trust proxy', true);
+
     this.expressApp.options('*.flv', (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');

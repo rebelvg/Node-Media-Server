@@ -6,6 +6,7 @@ import * as url from 'url';
 import { IncomingMessage, ServerResponse } from 'http';
 import { EventEmitter } from 'events';
 import { ParsedUrlQuery } from 'querystring';
+import * as _ from 'lodash';
 
 import { BufferPool } from './node_core_bufferpool';
 import { BaseSession } from './node_media_server';
@@ -65,9 +66,14 @@ export class NodeFlvSession extends EventEmitter {
   }
 
   public get stats() {
+    const { ip, headers } = this.req as any;
+
+    // support http reverse proxy
+    const headerIp = _.get(headers, ['x-real-ip']);
+
     return {
       bytesWritten: this.req.socket.bytesWritten,
-      remoteAddress: this.req.socket.remoteAddress,
+      remoteAddress: ip || headerIp,
     };
   }
 
@@ -253,7 +259,9 @@ export class NodeFlvSession extends EventEmitter {
     if (publisher.isFirstVideoReceived) {
       FLVHeader[4] |= 0b00000001;
     }
-    this.res.write(FLVHeader);
+
+    this.write(FLVHeader);
+
     if (publisher.metaData) {
       //send Metadata
       const rtmpHeader = {
@@ -268,7 +276,7 @@ export class NodeFlvSession extends EventEmitter {
         publisher.metaData,
       );
 
-      this.res.write(metaDataFlvMessage);
+      this.write(metaDataFlvMessage);
     }
     //send aacSequenceHeader
     if (publisher.audioCodec === 10) {
@@ -283,7 +291,7 @@ export class NodeFlvSession extends EventEmitter {
         publisher.aacSequenceHeader,
       );
 
-      this.res.write(flvMessage);
+      this.write(flvMessage);
     }
     //send avcSequenceHeader
     if (publisher.videoCodec === 7) {
@@ -298,13 +306,13 @@ export class NodeFlvSession extends EventEmitter {
         publisher.avcSequenceHeader,
       );
 
-      this.res.write(flvMessage);
+      this.write(flvMessage);
     }
 
     //send gop cache
     if (publisher.flvGopCacheQueue) {
       for (const flvMessage of publisher.flvGopCacheQueue) {
-        this.res.write(flvMessage);
+        this.write(flvMessage);
       }
     }
     console.log(`[${this.protocol} play] join stream ` + this.streamPath);
