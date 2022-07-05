@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 
 export class NodeHttpServer {
   private readonly port: number | string;
+  private readonly host: string;
 
   public readonly expressApp: Express;
   private httpServer: http.Server;
@@ -29,6 +30,7 @@ export class NodeHttpServer {
     private readonly nodeEvent: EventEmitter,
   ) {
     this.port = config.http.port;
+    this.host = config.http.host;
 
     this.expressApp = express();
 
@@ -68,9 +70,17 @@ export class NodeHttpServer {
   run() {
     this.httpServer = http.createServer(this.expressApp);
 
-    this.httpServer.listen(this.port, () => {
-      console.log(`Node Media Http Server started on port: ${this.port}`);
-    });
+    if (this.host) {
+      this.httpServer.listen(this.port as number, this.host, () => {
+        console.log(
+          `Node Media Http Server started on port: ${this.port} ${this.host}`,
+        );
+      });
+    } else {
+      this.httpServer.listen(this.port, () => {
+        console.log(`Node Media Http Server started on port: ${this.port}`);
+      });
+    }
 
     this.httpServer.on('error', (e) => {
       console.log(`Node Media Http Server ${e}`);

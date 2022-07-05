@@ -18,9 +18,10 @@ export interface INodeMediaServerConfig {
   };
   http: {
     port: number | string;
+    host: string | null;
   };
   api: {
-    token: string;
+    token: string | null;
   };
 }
 

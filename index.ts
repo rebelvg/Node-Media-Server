@@ -9,6 +9,7 @@ const config = {
   },
   http: {
     port: 8000,
+    host: '127.0.0.1',
   },
   api: {
     token: null,
