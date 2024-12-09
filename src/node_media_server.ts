@@ -15,6 +15,7 @@ export interface INodeMediaServerConfig {
     chunkSize: number;
     gopCache: boolean;
     ping: number;
+    host: string;
   };
   http: {
     port: number | string;

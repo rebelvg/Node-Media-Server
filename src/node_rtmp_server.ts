@@ -11,6 +11,7 @@ import { NodeRtmpSession } from './node_rtmp_session';
 
 export class NodeRtmpServer {
   private readonly port: number;
+  private readonly host: string;
   private readonly tcpServer: net.Server;
 
   constructor(
@@ -21,6 +22,7 @@ export class NodeRtmpServer {
     private readonly nodeEvent: EventEmitter,
   ) {
     this.port = config.rtmp.port;
+    this.host = config.rtmp.host;
 
     this.tcpServer = net.createServer((socket) => {
       const id = generateNewSessionID();
@@ -42,7 +44,7 @@ export class NodeRtmpServer {
   }
 
   run() {
-    this.tcpServer.listen(this.port, () => {
+    this.tcpServer.listen(this.port, '', () => {
       console.log(`Node Media Rtmp Server started on port: ${this.port}`);
     });
 
