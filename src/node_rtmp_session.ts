@@ -77,7 +77,7 @@ export class NodeRtmpSession extends EventEmitter {
   private outChunkSize: number;
   private previousChunkMessage: any;
   private ping: number;
-  private pingInterval: NodeJS.Timer;
+  private pingInterval: NodeJS.Timeout;
   public isActive = false;
   public isPublishing = false;
   public isPlaying = false;
