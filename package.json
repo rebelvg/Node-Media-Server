@@ -14,7 +14,6 @@
     "postinstall": "yarn build"
   },
   "dependencies": {
-    "bitop": "^0.0.1",
     "express": "^4.15.4",
     "lodash": "^4.17.4",
     "typescript": "^5.7.2",
@@ -30,7 +29,7 @@
     "@typescript-eslint/eslint-plugin": "^4.7.0",
     "@typescript-eslint/parser": "^4.7.0",
     "eslint": "^7.13.0",
-    "prettier": "^2.1.2",
+    "prettier": "^3.7.4",
     "ts-node": "^10.4.0"
   }
 }
