@@ -11,12 +11,11 @@
     "lint:fix": "eslint . --fix && yarn run prettier:fix",
     "start": "ts-node src/index.ts",
     "build": "tsc",
-    "postinstall": "yarn build"
+    "prepare": "yarn build"
   },
   "dependencies": {
     "express": "^4.15.4",
     "lodash": "^4.17.4",
-    "typescript": "^5.7.2",
     "uuid": "^14.0.0",
     "ws": "^8.21.0"
   },
@@ -30,6 +29,7 @@
     "eslint": "^9.39.4",
     "prettier": "^3.7.4",
     "ts-node": "^10.4.0",
+    "typescript": "^5.7.2",
     "typescript-eslint": "^8.61.1"
   }
 }
