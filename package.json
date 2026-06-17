@@ -4,6 +4,10 @@
   "description": "A Node.js implementation of RTMP Server",
   "main": "dist/node_media_server.js",
   "types": "dist/node_media_server.d.ts",
+  "files": [
+    "dist",
+    "lib"
+  ],
   "scripts": {
     "prettier": "prettier \"**/*\" --list-different --ignore-unknown",
     "prettier:fix": "prettier \"**/*\" --write --ignore-unknown",
