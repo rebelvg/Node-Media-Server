@@ -36,8 +36,8 @@ export class NodeMediaServer {
   private readonly idlePlayers: Set<string>;
   private readonly nodeEvent: EventEmitter;
 
-  public nrs: NodeRtmpServer;
-  public nhs: NodeHttpServer;
+  public nrs!: NodeRtmpServer;
+  public nhs!: NodeHttpServer;
 
   constructor(config: INodeMediaServerConfig) {
     this.config = config;
@@ -74,7 +74,7 @@ export class NodeMediaServer {
     }
   }
 
-  on(eventName, listener) {
+  on(eventName: string, listener: (...args: any[]) => void) {
     this.nodeEvent.on(eventName, listener);
   }
 

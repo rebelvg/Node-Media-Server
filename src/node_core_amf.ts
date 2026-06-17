@@ -3,7 +3,12 @@
  * This module provides encoding and decoding of the AMF0 and AMF3 format
  */
 
-const amf3dRules = {
+type AmfDecodeRule = (buf: Buffer) => any;
+type AmfDecodeRules = Record<number, AmfDecodeRule>;
+type AmfEncodeRule = (o: any) => Buffer | void;
+type AmfEncodeRules = Record<string, AmfEncodeRule>;
+
+const amf3dRules: AmfDecodeRules = {
   0x00: amf3decUndefined,
   0x01: amf3decNull,
   0x02: amf3decFalse,
@@ -24,7 +29,7 @@ const amf3dRules = {
   //    0x11: amf3decDict // No dictionary support for the moment!
 };
 
-const amf3eRules = {
+const amf3eRules: AmfEncodeRules = {
   string: amf3encString,
   integer: amf3encInteger,
   double: amf3encDouble,
@@ -39,7 +44,7 @@ const amf3eRules = {
   null: amf3encNull,
 };
 
-const amf0dRules = {
+const amf0dRules: AmfDecodeRules = {
   0x00: amf0decNumber,
   0x01: amf0decBool,
   0x02: amf0decString,
@@ -60,7 +65,7 @@ const amf0dRules = {
   0x11: amf0decSwitchAmf3,
 };
 
-const amf0eRules = {
+const amf0eRules: AmfEncodeRules = {
   string: amf0encString,
   integer: amf0encNumber,
   double: amf0encNumber,
@@ -75,7 +80,7 @@ const amf0eRules = {
   null: amf0encNull,
 };
 
-export function amfType(o) {
+export function amfType(o: any): string {
   const jsType = typeof o;
 
   if (o === null) {
@@ -198,7 +203,7 @@ export function amf3encTrue() {
  * @param buf
  * @returns {{len: number, value: number}}
  */
-export function amf3decUI29(buf) {
+export function amf3decUI29(buf: Buffer) {
   let val = 0;
   let len = 1;
   let b;
@@ -220,7 +225,7 @@ export function amf3decUI29(buf) {
  * @param num
  * @returns {Buffer}
  */
-export function amf3encUI29(num) {
+export function amf3encUI29(num: number) {
   let len = 0;
 
   if (num < 0x80) {
@@ -266,7 +271,7 @@ export function amf3encUI29(num) {
  * @param buf
  * @returns {{len: number, value: number}}
  */
-export function amf3decInteger(buf) {
+export function amf3decInteger(buf: Buffer) {
   // Invert the integer
   const resp = amf3decUI29(buf);
 
@@ -282,7 +287,7 @@ export function amf3decInteger(buf) {
  * @param num
  * @returns {Buffer}
  */
-export function amf3encInteger(num) {
+export function amf3encInteger(num: number) {
   const buf = Buffer.alloc(1);
 
   buf.writeUInt8(0x4, 0);
@@ -295,7 +300,7 @@ export function amf3encInteger(num) {
  * @param buf
  * @returns {{len: *, value: (*|String)}}
  */
-export function amf3decString(buf) {
+export function amf3decString(buf: Buffer) {
   let sLen: any = amf3decUI29(buf);
   const s = sLen & 1;
 
@@ -316,7 +321,7 @@ export function amf3decString(buf) {
  * @param str
  * @returns {Buffer}
  */
-export function amf3encString(str) {
+export function amf3encString(str: string) {
   const sLen = amf3encUI29(str.length << 1);
   const buf = Buffer.alloc(1);
 
@@ -330,7 +335,7 @@ export function amf3encString(str) {
  * @param buf
  * @returns {{len: *, value: (*|String)}}
  */
-export function amf3decXmlDoc(buf) {
+export function amf3decXmlDoc(buf: Buffer) {
   let sLen: any = amf3decUI29(buf);
   const s = sLen & 1;
 
@@ -351,7 +356,7 @@ export function amf3decXmlDoc(buf) {
  * @param str
  * @returns {Buffer}
  */
-export function amf3encXmlDoc(str) {
+export function amf3encXmlDoc(str: string) {
   const sLen = amf3encUI29(str.length << 1);
   const buf = Buffer.alloc(1);
 
@@ -365,7 +370,7 @@ export function amf3encXmlDoc(str) {
  * @param buf
  * @returns {{len: *, value: (*|String)}}
  */
-export function amf3decXml(buf) {
+export function amf3decXml(buf: Buffer) {
   let sLen: any = amf3decUI29(buf);
   const s = sLen & 1;
 
@@ -386,7 +391,7 @@ export function amf3decXml(buf) {
  * @param str
  * @returns {Buffer}
  */
-export function amf3encXml(str) {
+export function amf3encXml(str: string) {
   const sLen = amf3encUI29(str.length << 1);
   const buf = Buffer.alloc(1);
 
@@ -400,7 +405,7 @@ export function amf3encXml(str) {
  * @param buf
  * @returns {{len: *, value: (Array|string|*|Buffer|Blob)}}
  */
-export function amf3decByteArray(buf) {
+export function amf3decByteArray(buf: Buffer) {
   let sLen: any = amf3decUI29(buf);
   const s = sLen & 1; // TODO: Check if we follow the same rule!
 
@@ -418,7 +423,7 @@ export function amf3decByteArray(buf) {
  * @param str
  * @returns {Buffer}
  */
-export function amf3encByteArray(str) {
+export function amf3encByteArray(str: any) {
   const sLen = amf3encUI29(str.length << 1);
   const buf = Buffer.alloc(1);
 
@@ -436,7 +441,7 @@ export function amf3encByteArray(str) {
  * @param buf
  * @returns {{len: number, value: (*|Number)}}
  */
-export function amf3decDouble(buf) {
+export function amf3decDouble(buf: Buffer) {
   return { len: 9, value: buf.readDoubleBE(1) };
 }
 
@@ -445,7 +450,7 @@ export function amf3decDouble(buf) {
  * @param num
  * @returns {Buffer}
  */
-export function amf3encDouble(num) {
+export function amf3encDouble(num: number) {
   const buf = Buffer.alloc(9);
 
   buf.writeUInt8(0x05, 0);
@@ -459,7 +464,7 @@ export function amf3encDouble(num) {
  * @param buf
  * @returns {{len: *, value: (*|Number)}}
  */
-export function amf3decDate(buf) {
+export function amf3decDate(buf: Buffer) {
   // The UI29 should be 1
   const uTz = amf3decUI29(buf);
   const ts = buf.readDoubleBE(uTz.len);
@@ -472,7 +477,7 @@ export function amf3decDate(buf) {
  * @param ts
  * @returns {Buffer}
  */
-export function amf3encDate(ts) {
+export function amf3encDate(ts: number) {
   const buf = Buffer.alloc(1);
 
   buf.writeUInt8(0x8, 0);
@@ -488,7 +493,7 @@ export function amf3encDate(ts) {
  * @param buf
  * @returns {{len: *, value: *}}
  */
-export function amf3decArray(buf) {
+export function amf3decArray(buf: Buffer) {
   const count = amf3decUI29(buf.slice(1));
   const obj: any = amf3decObject(buf.slice(count.len));
 
@@ -512,7 +517,7 @@ export function amf3encArray() {
  * AMF3 Decode Object
  * @param buf
  */
-export function amf3decObject(buf) {
+export function amf3decObject(buf: Buffer) {
   const obj = {};
   const _pos = 0;
 
@@ -523,7 +528,7 @@ export function amf3decObject(buf) {
  * AMF3 Encode Object
  * @param o
  */
-export function amf3encObject(o) {
+export function amf3encObject(o: any) {
   // empty
 }
 
@@ -534,7 +539,7 @@ export function amf3encObject(o) {
  * @param buf
  * @returns {{len: number, value: (*|Number)}}
  */
-export function amf0decNumber(buf) {
+export function amf0decNumber(buf: Buffer) {
   return { len: 9, value: buf.readDoubleBE(1) };
 }
 
@@ -543,7 +548,7 @@ export function amf0decNumber(buf) {
  * @param num
  * @returns {Buffer}
  */
-export function amf0encNumber(num) {
+export function amf0encNumber(num: number) {
   const buf = Buffer.alloc(9);
 
   buf.writeUInt8(0x00, 0);
@@ -557,7 +562,7 @@ export function amf0encNumber(num) {
  * @param buf
  * @returns {{len: number, value: boolean}}
  */
-export function amf0decBool(buf) {
+export function amf0decBool(buf: Buffer) {
   return { len: 2, value: buf.readUInt8(1) !== 0 };
 }
 
@@ -566,7 +571,7 @@ export function amf0decBool(buf) {
  * @param num
  * @returns {Buffer}
  */
-export function amf0encBool(num) {
+export function amf0encBool(num: any) {
   const buf = Buffer.alloc(2);
 
   buf.writeUInt8(0x01, 0);
@@ -620,7 +625,7 @@ export function amf0encUndefined() {
  * @param buf
  * @returns {{len: number, value: (*|Number)}}
  */
-export function amf0decDate(buf) {
+export function amf0decDate(buf: Buffer) {
   //    var s16 = buf.readInt16BE(1);
   const ts = buf.readDoubleBE(3);
 
@@ -632,7 +637,7 @@ export function amf0decDate(buf) {
  * @param ts
  * @returns {Buffer}
  */
-export function amf0encDate(ts) {
+export function amf0encDate(ts: number) {
   const buf = Buffer.alloc(11);
 
   buf.writeUInt8(0x0b, 0);
@@ -647,9 +652,9 @@ export function amf0encDate(ts) {
  * @param buf
  * @returns {{len: number, value: {}}}
  */
-export function amf0decObject(buf) {
+export function amf0decObject(buf: Buffer) {
   // TODO: Implement references!
-  const obj = {};
+  const obj: Record<string, any> = {};
   let iBuf = buf.slice(1);
   let len = 1;
   // console.log('ODec',iBuf.readUInt8(0));
@@ -682,7 +687,7 @@ export function amf0decObject(buf) {
 /**
  * AMF0 Encode Object
  */
-export function amf0encObject(o) {
+export function amf0encObject(o: any) {
   if (typeof o !== 'object') {
     return;
   }
@@ -690,7 +695,7 @@ export function amf0encObject(o) {
   let data = Buffer.alloc(1);
 
   data.writeUInt8(0x03, 0); // Type object
-  let k;
+  let k: string;
 
   for (k in o) {
     data = Buffer.concat([data, amf0encUString(k), amf0EncodeOne(o[k])]);
@@ -707,7 +712,7 @@ export function amf0encObject(o) {
  * @param buf
  * @returns {{len: number, value: string}}
  */
-export function amf0decRef(buf) {
+export function amf0decRef(buf: Buffer) {
   const index = buf.readUInt16BE(1);
 
   return { len: 3, value: 'ref' + index };
@@ -718,7 +723,7 @@ export function amf0decRef(buf) {
  * @param index
  * @returns {Buffer}
  */
-export function amf0encRef(index) {
+export function amf0encRef(index: number) {
   const buf = Buffer.alloc(3);
 
   buf.writeUInt8(0x07, 0);
@@ -732,7 +737,7 @@ export function amf0encRef(index) {
  * @param buf
  * @returns {{len: *, value: (*|string|String)}}
  */
-export function amf0decString(buf) {
+export function amf0decString(buf: Buffer) {
   const sLen = buf.readUInt16BE(1);
 
   return { len: 3 + sLen, value: buf.toString('utf8', 3, 3 + sLen) };
@@ -743,7 +748,7 @@ export function amf0decString(buf) {
  * @param buf
  * @returns {{len: *, value: (*|string|String)}}
  */
-export function amf0decUString(buf) {
+export function amf0decUString(buf: Buffer) {
   const sLen = buf.readUInt16BE(0);
 
   return { len: 2 + sLen, value: buf.toString('utf8', 2, 2 + sLen) };
@@ -754,7 +759,7 @@ export function amf0decUString(buf) {
  * @param s
  * @returns {Buffer}
  */
-export function amf0encUString(s) {
+export function amf0encUString(s: string) {
   const data = Buffer.from(s, 'utf8');
   const sLen = Buffer.alloc(2);
 
@@ -768,7 +773,7 @@ export function amf0encUString(s) {
  * @param str
  * @returns {Buffer}
  */
-export function amf0encString(str) {
+export function amf0encString(str: string) {
   const buf = Buffer.alloc(3);
 
   buf.writeUInt8(0x02, 0);
@@ -782,7 +787,7 @@ export function amf0encString(str) {
  * @param buf
  * @returns {{len: *, value: (*|string|String)}}
  */
-export function amf0decLongString(buf) {
+export function amf0decLongString(buf: Buffer) {
   const sLen = buf.readUInt32BE(1);
 
   return { len: 5 + sLen, value: buf.toString('utf8', 5, 5 + sLen) };
@@ -793,7 +798,7 @@ export function amf0decLongString(buf) {
  * @param str
  * @returns {Buffer}
  */
-export function amf0encLongString(str) {
+export function amf0encLongString(str: string) {
   const buf = Buffer.alloc(5);
 
   buf.writeUInt8(0x0c, 0);
@@ -807,7 +812,7 @@ export function amf0encLongString(str) {
  * @param buf
  * @returns {{len: *, value: ({}|*)}}
  */
-export function amf0decArray(buf) {
+export function amf0decArray(buf: Buffer) {
   //    var count = buf.readUInt32BE(1);
   const obj = amf0decObject(buf.slice(4));
 
@@ -817,7 +822,7 @@ export function amf0decArray(buf) {
 /**
  * AMF0 Encode Array
  */
-export function amf0encArray(a) {
+export function amf0encArray(a: any) {
   let l = 0;
 
   if (a instanceof Array) {
@@ -832,7 +837,7 @@ export function amf0encArray(a) {
   buf.writeUInt32BE(l, 1);
   const data = amf0encObject(a);
 
-  return Buffer.concat([buf, data.slice(1)]);
+  return Buffer.concat([buf, data!.slice(1)]);
 }
 
 /**
@@ -840,7 +845,7 @@ export function amf0encArray(a) {
  * @param aData
  * @returns {Buffer}
  */
-export function amf0cnvArray2Object(aData) {
+export function amf0cnvArray2Object(aData: Buffer) {
   const buf = Buffer.alloc(1);
 
   buf.writeUInt8(0x3, 0); // Object id
@@ -853,7 +858,7 @@ export function amf0cnvArray2Object(aData) {
  * @param oData
  * @returns {Buffer}
  */
-export function amf0cnvObject2Array(oData) {
+export function amf0cnvObject2Array(oData: Buffer) {
   const buf = Buffer.alloc(5);
   const o = amf0decObject(oData);
   const l = Object.keys(o).length;
@@ -868,7 +873,7 @@ export function amf0cnvObject2Array(oData) {
  * @param buf
  * @returns {{len: *, value: (*|string|String)}}
  */
-export function amf0decXmlDoc(buf) {
+export function amf0decXmlDoc(buf: Buffer) {
   const sLen = buf.readUInt16BE(1);
 
   return { len: 3 + sLen, value: buf.toString('utf8', 3, 3 + sLen) };
@@ -879,7 +884,7 @@ export function amf0decXmlDoc(buf) {
  * @param str
  * @returns {Buffer}
  */
-export function amf0encXmlDoc(str) {
+export function amf0encXmlDoc(str: string) {
   // Essentially it is the same as string
   const buf = Buffer.alloc(3);
 
@@ -894,8 +899,8 @@ export function amf0encXmlDoc(str) {
  * @param buf
  * @returns {{len: number, value: Array}}
  */
-export function amf0decSArray(buf) {
-  const a = [];
+export function amf0decSArray(buf: Buffer) {
+  const a: any[] = [];
   let len = 5;
   let ret;
 
@@ -912,7 +917,7 @@ export function amf0decSArray(buf) {
  * AMF0 Encode Strict Array
  * @param a Array
  */
-export function amf0encSArray(a) {
+export function amf0encSArray(a: any[]) {
   console.log('Do strict array!');
   let buf = Buffer.alloc(5);
 
@@ -927,7 +932,7 @@ export function amf0encSArray(a) {
   return buf;
 }
 
-export function amf0markSArray(a) {
+export function amf0markSArray(a: any[]) {
   Object.defineProperty(a, 'sarray', { value: true });
 
   return a;
@@ -938,7 +943,7 @@ export function amf0markSArray(a) {
  * @param buf
  * @returns {{len: number, value: ({}|*)}}
  */
-export function amf0decTypedObj(buf) {
+export function amf0decTypedObj(buf: Buffer) {
   const className = amf0decString(buf);
   const obj: any = amf0decObject(buf.slice(className.len - 1));
 
@@ -952,7 +957,7 @@ export function amf0decTypedObj(buf) {
  * @param buf
  * @returns {{len: number, value: ({}|*)}}
  */
-export function amf0decSwitchAmf3(buf) {
+export function amf0decSwitchAmf3(buf: Buffer) {
   const r = amf3DecodeOne(buf.slice(1));
 
   return r;
@@ -971,7 +976,7 @@ export function amf0encTypedObj() {
  * @param buffer
  * @returns {*}
  */
-export function amfXDecodeOne(rules, buffer) {
+export function amfXDecodeOne(rules: AmfDecodeRules, buffer: Buffer): any {
   if (!rules[buffer.readUInt8(0)]) {
     console.log('Unknown field', buffer.readUInt8(0));
 
@@ -986,7 +991,7 @@ export function amfXDecodeOne(rules, buffer) {
  * @param buffer
  * @returns {*}
  */
-export function amf0DecodeOne(buffer) {
+export function amf0DecodeOne(buffer: Buffer): any {
   return amfXDecodeOne(amf0dRules, buffer);
 }
 
@@ -995,7 +1000,7 @@ export function amf0DecodeOne(buffer) {
  * @param buffer
  * @returns {*}
  */
-export function amf3DecodeOne(buffer) {
+export function amf3DecodeOne(buffer: Buffer): any {
   return amfXDecodeOne(amf3dRules, buffer);
 }
 
@@ -1005,9 +1010,9 @@ export function amf3DecodeOne(buffer) {
  * @param buffer
  * @returns {Array}
  */
-export function amfXDecode(rules, buffer) {
+export function amfXDecode(rules: AmfDecodeRules, buffer: Buffer) {
   // We shall receive clean buffer and will respond with an array of values
-  const resp = [];
+  const resp: any[] = [];
   let res;
 
   for (let i = 0; i < buffer.length; ) {
@@ -1024,7 +1029,7 @@ export function amfXDecode(rules, buffer) {
  * @param buffer
  * @returns {Array}
  */
-export function amf3Decode(buffer) {
+export function amf3Decode(buffer: Buffer) {
   return amfXDecode(amf3dRules, buffer);
 }
 
@@ -1033,7 +1038,7 @@ export function amf3Decode(buffer) {
  * @param buffer
  * @returns {Array}
  */
-export function amf0Decode(buffer) {
+export function amf0Decode(buffer: Buffer) {
   return amfXDecode(amf0dRules, buffer);
 }
 
@@ -1043,12 +1048,12 @@ export function amf0Decode(buffer) {
  * @param o
  * @returns {*}
  */
-export function amfXEncodeOne(rules, o) {
+export function amfXEncodeOne(rules: AmfEncodeRules, o: any): Buffer {
   // console.log('amfXEncodeOne type',o,amfType(o),rules[amfType(o)]);
   const f = rules[amfType(o)];
 
   if (f) {
-    return f(o);
+    return f(o) as Buffer;
   }
   throw new Error('Unsupported type for encoding!');
 }
@@ -1058,7 +1063,7 @@ export function amfXEncodeOne(rules, o) {
  * @param o
  * @returns {*}
  */
-export function amf0EncodeOne(o) {
+export function amf0EncodeOne(o: any): Buffer {
   return amfXEncodeOne(amf0eRules, o);
 }
 
@@ -1067,7 +1072,7 @@ export function amf0EncodeOne(o) {
  * @param o
  * @returns {*}
  */
-export function amf3EncodeOne(o) {
+export function amf3EncodeOne(o: any): Buffer {
   return amfXEncodeOne(amf3eRules, o);
 }
 
@@ -1076,7 +1081,7 @@ export function amf3EncodeOne(o) {
  * @param a
  * @returns {Buffer}
  */
-export function amf3Encode(a) {
+export function amf3Encode(a: any[]) {
   let buf = Buffer.alloc(0);
 
   a.forEach((o) => {
@@ -1091,7 +1096,7 @@ export function amf3Encode(a) {
  * @param a
  * @returns {Buffer}
  */
-export function amf0Encode(a) {
+export function amf0Encode(a: any[]) {
   let buf = Buffer.alloc(0);
 
   a.forEach((o) => {
@@ -1101,7 +1106,7 @@ export function amf0Encode(a) {
   return buf;
 }
 
-const rtmpCmdDecode = {
+const rtmpCmdDecode: Record<string, string[]> = {
   _result: ['transId', 'cmdObj', 'info'],
   _error: ['transId', 'cmdObj', 'info', 'streamId'], // Info / Streamid are optional
   onStatus: ['transId', 'cmdObj', 'info'],
@@ -1126,7 +1131,7 @@ const rtmpCmdDecode = {
   pause: ['transId', 'cmdObj', 'pause', 'ms'],
 };
 
-const rtmpDataDecode = {
+const rtmpDataDecode: Record<string, string[]> = {
   '@setDataFrame': ['method', 'dataObj'],
   onMetaData: ['cmdObj'],
   '|RtmpSampleAccess': ['bool1', 'bool2'],
@@ -1137,7 +1142,7 @@ const rtmpDataDecode = {
  * @param dbuf
  * @returns {{cmd: (*|string|String|*), value: *}}
  */
-export function decodeAmf0Data(dbuf) {
+export function decodeAmf0Data(dbuf: Buffer): any {
   let buffer = dbuf;
   const resp: any = {};
 
@@ -1147,7 +1152,7 @@ export function decodeAmf0Data(dbuf) {
   buffer = buffer.slice(cmd.len);
 
   if (rtmpDataDecode[cmd.value]) {
-    rtmpDataDecode[cmd.value].forEach((n) => {
+    rtmpDataDecode[cmd.value].forEach((n: string) => {
       if (buffer.length > 0) {
         const r = amf0DecodeOne(buffer);
 
@@ -1167,7 +1172,7 @@ export function decodeAmf0Data(dbuf) {
  * @param dbuf
  * @returns {{cmd: (*|string|String|*), value: *}}
  */
-export function decodeAmf0Cmd(dbuf) {
+export function decodeAmf0Cmd(dbuf: Buffer): any {
   let buffer = dbuf;
   const resp: any = {};
 
@@ -1177,7 +1182,7 @@ export function decodeAmf0Cmd(dbuf) {
   buffer = buffer.slice(cmd.len);
 
   if (rtmpCmdDecode[cmd.value]) {
-    rtmpCmdDecode[cmd.value].forEach((n) => {
+    rtmpCmdDecode[cmd.value].forEach((n: string) => {
       if (buffer.length > 0) {
         const r = amf0DecodeOne(buffer);
 
@@ -1197,11 +1202,11 @@ export function decodeAmf0Cmd(dbuf) {
  * @param opt
  * @returns {*}
  */
-export function encodeAmf0Cmd(opt) {
+export function encodeAmf0Cmd(opt: any): Buffer {
   let data = amf0EncodeOne(opt.cmd);
 
   if (rtmpCmdDecode[opt.cmd]) {
-    rtmpCmdDecode[opt.cmd].forEach((n) => {
+    rtmpCmdDecode[opt.cmd].forEach((n: string) => {
       if (opt.hasOwnProperty(n)) {
         data = Buffer.concat([data, amf0EncodeOne(opt[n])]);
       }
@@ -1214,11 +1219,11 @@ export function encodeAmf0Cmd(opt) {
   return data;
 }
 
-export function encodeAmf0Data(opt) {
+export function encodeAmf0Data(opt: any): Buffer {
   let data = amf0EncodeOne(opt.cmd);
 
   if (rtmpDataDecode[opt.cmd]) {
-    rtmpDataDecode[opt.cmd].forEach((n) => {
+    rtmpDataDecode[opt.cmd].forEach((n: string) => {
       if (opt.hasOwnProperty(n)) {
         data = Buffer.concat([data, amf0EncodeOne(opt[n])]);
       }
@@ -1236,7 +1241,7 @@ export function encodeAmf0Data(opt) {
  * @param dbuf
  * @returns {{}}
  */
-export function decodeAmf3Cmd(dbuf) {
+export function decodeAmf3Cmd(dbuf: Buffer): any {
   let buffer = dbuf;
   const resp: any = {};
 
@@ -1246,7 +1251,7 @@ export function decodeAmf3Cmd(dbuf) {
   buffer = buffer.slice(cmd.len);
 
   if (rtmpCmdDecode[cmd.value]) {
-    rtmpCmdDecode[cmd.value].forEach((n) => {
+    rtmpCmdDecode[cmd.value].forEach((n: string) => {
       if (buffer.length > 0) {
         const r = amf3DecodeOne(buffer);
 
@@ -1266,11 +1271,11 @@ export function decodeAmf3Cmd(dbuf) {
  * @param opt
  * @returns {*}
  */
-export function encodeAmf3Cmd(opt) {
+export function encodeAmf3Cmd(opt: any): Buffer {
   let data = amf0EncodeOne(opt.cmd);
 
   if (rtmpCmdDecode[opt.cmd]) {
-    rtmpCmdDecode[opt.cmd].forEach((n) => {
+    rtmpCmdDecode[opt.cmd].forEach((n: string) => {
       if (opt.hasOwnProperty(n)) {
         data = Buffer.concat([data, amf3EncodeOne(opt[n])]);
       }

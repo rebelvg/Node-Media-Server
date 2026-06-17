@@ -1,14 +1,15 @@
 import * as _ from 'lodash';
+import { Request, Response, NextFunction } from 'express';
 import { SessionTypeEnum } from '../../node_base_session';
 
 import { NodeFlvSession } from '../../node_flv_session';
 import { NodeMediaServer } from '../../node_media_server';
 import { NodeRtmpSession } from '../../node_rtmp_session';
 
-export function getStreams(req, res, next) {
-  const nms: NodeMediaServer = req['nms'];
+export function getStreams(req: Request, res: Response, next: NextFunction) {
+  const nms: NodeMediaServer = (req as any).nms;
 
-  const stats = [];
+  const stats: Record<string, any>[] = [];
 
   for (const [, session] of nms.sessions) {
     if (!session.isActive) {
@@ -23,7 +24,7 @@ export function getStreams(req, res, next) {
 
     const [, app, channel] = regRes;
 
-    let liveApp = _.find(stats, { app });
+    let liveApp: Record<string, any> | undefined = _.find(stats, { app });
 
     if (!liveApp) {
       liveApp = {

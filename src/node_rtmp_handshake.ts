@@ -12,38 +12,9 @@ const RTMP_SIG_SIZE = 1536;
 const SHA256DL = 32;
 
 const RandomCrud = Buffer.from([
-  0xf0,
-  0xee,
-  0xc2,
-  0x4a,
-  0x80,
-  0x68,
-  0xbe,
-  0xe8,
-  0x2e,
-  0x00,
-  0xd0,
-  0xd1,
-  0x02,
-  0x9e,
-  0x7e,
-  0x57,
-  0x6e,
-  0xec,
-  0x5d,
-  0x2d,
-  0x29,
-  0x80,
-  0x6f,
-  0xab,
-  0x93,
-  0xb8,
-  0xe6,
-  0x36,
-  0xcf,
-  0xeb,
-  0x31,
-  0xae,
+  0xf0, 0xee, 0xc2, 0x4a, 0x80, 0x68, 0xbe, 0xe8, 0x2e, 0x00, 0xd0, 0xd1, 0x02,
+  0x9e, 0x7e, 0x57, 0x6e, 0xec, 0x5d, 0x2d, 0x29, 0x80, 0x6f, 0xab, 0x93, 0xb8,
+  0xe6, 0x36, 0xcf, 0xeb, 0x31, 0xae,
 ]);
 
 const GenuineFMSConst = 'Genuine Adobe Flash Media Server 001';
@@ -58,7 +29,7 @@ const _GenuineFPConstCrud = Buffer.concat([
   RandomCrud,
 ]);
 
-function calcHmac(data, key) {
+function calcHmac(data: Buffer, key: Buffer | string) {
   const hmac = crypto.createHmac('sha256', key);
 
   hmac.update(data);
@@ -66,7 +37,7 @@ function calcHmac(data, key) {
   return hmac.digest();
 }
 
-function GetClientGenuineConstDigestOffset(buf) {
+function GetClientGenuineConstDigestOffset(buf: Buffer) {
   let offset = buf[0] + buf[1] + buf[2] + buf[3];
 
   offset = (offset % 728) + 12;
@@ -74,7 +45,7 @@ function GetClientGenuineConstDigestOffset(buf) {
   return offset;
 }
 
-function GetServerGenuineConstDigestOffset(buf) {
+function GetServerGenuineConstDigestOffset(buf: Buffer) {
   let offset = buf[0] + buf[1] + buf[2] + buf[3];
 
   offset = (offset % 728) + 776;
@@ -82,7 +53,7 @@ function GetServerGenuineConstDigestOffset(buf) {
   return offset;
 }
 
-function detectClientMessageFormat(clientsig) {
+function detectClientMessageFormat(clientsig: Buffer) {
   let computedSignature, msg, providedSignature, sdl;
 
   sdl = GetServerGenuineConstDigestOffset(clientsig.slice(772, 776));
@@ -109,7 +80,7 @@ function detectClientMessageFormat(clientsig) {
   return MESSAGE_FORMAT_0;
 }
 
-function generateS1(messageFormat) {
+function generateS1(messageFormat: number) {
   const randomBytes = crypto.randomBytes(RTMP_SIG_SIZE - 8);
   const handshakeBytes = Buffer.concat(
     [Buffer.from([0, 0, 0, 0, 1, 2, 3, 4]), randomBytes],
@@ -142,7 +113,7 @@ function generateS1(messageFormat) {
   return handshakeBytes;
 }
 
-function generateS2(messageFormat, clientsig) {
+function generateS2(messageFormat: number, clientsig: Buffer) {
   const randomBytes = crypto.randomBytes(RTMP_SIG_SIZE - 32);
   let challengeKeyOffset;
 
@@ -166,7 +137,7 @@ function generateS2(messageFormat, clientsig) {
   return s2Bytes;
 }
 
-export function generateS0S1S2(clientsig) {
+export function generateS0S1S2(clientsig: Buffer) {
   const clientType = clientsig.slice(0, 1);
   // console.log("[rtmp handshake] client type: " + clientType);
 

@@ -5,16 +5,16 @@
 import { Readable } from 'stream';
 
 export class BufferPool extends Readable {
-  readBytes: number;
-  poolBytes: number;
-  needBytes: number;
-  gFun: Generator;
+  readBytes!: number;
+  poolBytes!: number;
+  needBytes!: number;
+  gFun!: Generator<void, void, boolean>;
 
   constructor(options = undefined) {
     super(options);
   }
 
-  init(gFun) {
+  init(gFun: Generator<void, void, boolean>) {
     this.readBytes = 0;
     this.poolBytes = 0;
     this.needBytes = 0;
@@ -26,7 +26,11 @@ export class BufferPool extends Readable {
     this.gFun.next(true);
   }
 
-  push(buf): any {
+  push(buf: Buffer): any {
+    if (this.destroyed) {
+      return;
+    }
+
     super.push(buf);
     this.poolBytes += buf.length;
     this.readBytes += buf.length;
@@ -35,17 +39,21 @@ export class BufferPool extends Readable {
     }
   }
 
-  _read(size) {
+  _read(): void {
     // empty
   }
 
-  read(size) {
-    this.poolBytes -= size;
+  read(size: number) {
+    const buf = super.read(size);
 
-    return super.read(size);
+    if (buf) {
+      this.poolBytes -= buf.length;
+    }
+
+    return buf;
   }
 
-  need(size) {
+  need(size: number): boolean {
     const ret = this.poolBytes < size;
 
     if (ret) {

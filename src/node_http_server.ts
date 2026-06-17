@@ -16,11 +16,11 @@ import { EventEmitter } from 'events';
 
 export class NodeHttpServer {
   private readonly port: number | string;
-  private readonly host: string;
+  private readonly host: string | null;
 
   public readonly expressApp: Express;
-  private httpServer: http.Server;
-  private wsServer: ws.Server;
+  private httpServer!: http.Server;
+  private wsServer!: ws.Server;
 
   constructor(
     config: INodeMediaServerConfig,
@@ -49,7 +49,7 @@ export class NodeHttpServer {
     });
 
     this.expressApp.use((req, res, next) => {
-      req['nms'] = this;
+      (req as any).nms = this;
 
       next();
     });
@@ -62,9 +62,16 @@ export class NodeHttpServer {
       throw new Error('not_found');
     });
 
-    this.expressApp.use((err, req, res, next) => {
-      res.status(500).send(err.message);
-    });
+    this.expressApp.use(
+      (
+        err: any,
+        req: express.Request,
+        res: express.Response,
+        next: express.NextFunction,
+      ) => {
+        res.status(500).send(err.message);
+      },
+    );
   }
 
   run() {

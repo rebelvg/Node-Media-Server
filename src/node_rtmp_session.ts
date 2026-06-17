@@ -34,6 +34,12 @@ const RTMP_CHUNK_SIZE = 128;
 const RTMP_PING_TIME = 60000;
 const _RTMP_PING_TIMEOUT = 30000;
 
+// A subscriber whose outbound socket buffer grows past this is treated as a
+// dead/too-slow viewer and disconnected, so one stalled player can't make the
+// publisher accumulate unbounded memory. Tunable; generous enough to ride out
+// brief network stalls.
+const MAX_OUTBOUND_BUFFER_BYTES = 16 * 1024 * 1024;
+
 const AUDIO_CODEC_NAME = [
   '',
   'ADPCM',
@@ -71,13 +77,13 @@ const VIDEO_CODEC_NAME = [
 
 export class NodeRtmpSession extends EventEmitter {
   protected readonly bp: BufferPool;
-  public rtmpPlayers: Set<string>;
-  public httpPlayers: Set<string>;
+  public rtmpPlayers!: Set<string>;
+  public httpPlayers!: Set<string>;
   private inChunkSize: number;
   private outChunkSize: number;
   private previousChunkMessage: any;
   private ping: number;
-  private pingInterval: NodeJS.Timeout;
+  private pingInterval: NodeJS.Timeout | null = null;
   public isActive = false;
   public isPublishing = false;
   public isPlaying = false;
@@ -85,30 +91,30 @@ export class NodeRtmpSession extends EventEmitter {
   public isFirstAudioReceived = false;
   public isFirstVideoReceived = false;
   public metaData: any;
-  public aacSequenceHeader: Buffer;
-  public avcSequenceHeader: Buffer;
-  public audioCodec: number;
-  public audioCodecName: string;
-  public audioProfileName: string;
-  public audioSamplerate: number;
-  public audioChannels: number;
-  public videoCodec: number;
-  public videoCodecName: string;
-  public videoSize: string;
-  public videoFps: number;
+  public aacSequenceHeader!: Buffer;
+  public avcSequenceHeader!: Buffer;
+  public audioCodec!: number;
+  public audioCodecName!: string;
+  public audioProfileName!: string;
+  public audioSamplerate!: number;
+  public audioChannels!: number;
+  public videoCodec!: number;
+  public videoCodecName!: string;
+  public videoSize!: string;
+  public videoFps!: number;
   private gopCacheEnable: boolean;
-  public rtmpGopCacheQueue: Set<Buffer>;
-  public flvGopCacheQueue: Set<Buffer>;
+  public rtmpGopCacheQueue: Set<Buffer> | null = null;
+  public flvGopCacheQueue: Set<Buffer> | null = null;
   private ackSize = 0;
   private inLastAck = 0;
-  private appName: string;
+  private appName!: string;
   private streams = 0;
   private playStreamId = 0;
-  public streamPath: string;
-  public streamArgs: qs.ParsedUrlQuery;
+  public streamPath!: string;
+  public streamArgs!: qs.ParsedUrlQuery;
   private publishStreamId = 0;
-  private startTimestamp: number;
-  private objectEncoding: number;
+  private startTimestamp!: number;
+  private objectEncoding!: number;
   public readonly connectTime = new Date();
   protected connectCmdObj: any;
   public sessionType = SessionTypeEnum.CONNECTED;
@@ -173,7 +179,7 @@ export class NodeRtmpSession extends EventEmitter {
     };
   }
 
-  public addMetadata(data) {
+  public addMetadata(data: any) {
     this.sessionMetadata = {
       ...this.sessionMetadata,
       ...data,
@@ -200,11 +206,11 @@ export class NodeRtmpSession extends EventEmitter {
     this.isActive = false;
   }
 
-  private onSocketData(data) {
+  private onSocketData(data: Buffer) {
     this.bp.push(data);
   }
 
-  private onSocketError(e) {
+  private onSocketError(e: Error) {
     this.stop();
   }
 
@@ -212,7 +218,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.stop();
   }
 
-  protected *handleData() {
+  protected *handleData(): Generator<void, void, boolean> {
     console.log('[rtmp handshake] start');
     if (this.bp.need(1537)) {
       if (yield) {
@@ -385,6 +391,11 @@ export class NodeRtmpSession extends EventEmitter {
       } else if (
         message.extendedTimestampType === EXTENDED_TIMESTAMP_TYPE_DELTA
       ) {
+        if (this.bp.need(4)) {
+          if (yield) {
+            break;
+          }
+        }
         const extTimestamp = this.bp.read(4);
 
         message.timestampDelta = extTimestamp.readUInt32BE();
@@ -444,13 +455,19 @@ export class NodeRtmpSession extends EventEmitter {
     }
 
     this.nodeEvent.emit('doneConnect', this.id, this.connectCmdObj);
+    // Drop every listener first so the timeout/error closures stop pinning
+    // this session, then keep a no-op error handler so a late socket error
+    // during teardown can't crash the process.
+    this.socket.removeAllListeners();
+    this.socket.on('error', () => {
+      // ignore errors while the socket is being torn down
+    });
     this.socket.end();
-    this.socket.removeAllListeners('data');
-    this.socket.removeAllListeners('close');
+    this.bp.destroy();
     this.sessions.delete(this.id);
   }
 
-  private createChunkBasicHeader(fmt, id) {
+  private createChunkBasicHeader(fmt: number, id: number) {
     let out;
 
     if (id >= 64 + 255) {
@@ -470,7 +487,7 @@ export class NodeRtmpSession extends EventEmitter {
     return out;
   }
 
-  private createRtmpMessage(rtmpHeader, rtmpBody) {
+  private createRtmpMessage(rtmpHeader: any, rtmpBody: Buffer) {
     const chunkBasicHeader = this.createChunkBasicHeader(
       0,
       rtmpHeader.chunkStreamID,
@@ -503,7 +520,7 @@ export class NodeRtmpSession extends EventEmitter {
     chunkBodys.push(chunkBasicHeader);
     chunkBodys.push(chunkMessageHeader);
     if (useExtendedTimestamp) {
-      chunkBodys.push(chunkExtendedTimestamp);
+      chunkBodys.push(chunkExtendedTimestamp!);
     }
     do {
       if (rtmpBodySize > this.outChunkSize) {
@@ -516,7 +533,7 @@ export class NodeRtmpSession extends EventEmitter {
           this.createChunkBasicHeader(3, rtmpHeader.chunkStreamID),
         );
         if (useExtendedTimestamp) {
-          chunkBodys.push(chunkExtendedTimestamp);
+          chunkBodys.push(chunkExtendedTimestamp!);
         }
       } else {
         chunkBodys.push(
@@ -530,7 +547,7 @@ export class NodeRtmpSession extends EventEmitter {
     return Buffer.concat(chunkBodys);
   }
 
-  private handleRTMPMessage(rtmpHeader, rtmpBody) {
+  private handleRTMPMessage(rtmpHeader: any, rtmpBody: Buffer) {
     // console.log(`[rtmp handleRtmpMessage] rtmpHeader.messageTypeID=${rtmpHeader.messageTypeID}`);
     switch (rtmpHeader.messageTypeID) {
       case 1:
@@ -588,7 +605,7 @@ export class NodeRtmpSession extends EventEmitter {
     }
   }
 
-  private handleUserControlMessage(userControlMessage) {
+  private handleUserControlMessage(userControlMessage: any) {
     switch (userControlMessage.eventType) {
       case 3:
         const streamID = userControlMessage.eventData.readUInt32BE();
@@ -606,7 +623,7 @@ export class NodeRtmpSession extends EventEmitter {
     }
   }
 
-  private handleAMFDataMessage(streamID, dataMessage) {
+  private handleAMFDataMessage(streamID: number, dataMessage: any) {
     // console.log('handleAMFDataMessage', dataMessage);
     switch (dataMessage.cmd) {
       case '@setDataFrame':
@@ -629,7 +646,7 @@ export class NodeRtmpSession extends EventEmitter {
     }
   }
 
-  private handleAMFCommandMessage(streamID, commandMessage) {
+  private handleAMFCommandMessage(streamID: number, commandMessage: any) {
     // console.log('handleAMFCommandMessage:', commandMessage);
     switch (commandMessage.cmd) {
       case 'connect':
@@ -681,7 +698,7 @@ export class NodeRtmpSession extends EventEmitter {
     }
   }
 
-  private handleAudioMessage(rtmpHeader, rtmpBody) {
+  private handleAudioMessage(rtmpHeader: any, rtmpBody: Buffer) {
     if (!this.isPublishing) {
       return;
     }
@@ -720,7 +737,7 @@ export class NodeRtmpSession extends EventEmitter {
     const rtmpMessage = this.createRtmpMessage(rtmpHeader, rtmpBody);
     const flvMessage = NodeFlvSession.createFlvMessage(rtmpHeader, rtmpBody);
 
-    if (this.rtmpGopCacheQueue) {
+    if (this.rtmpGopCacheQueue && this.flvGopCacheQueue) {
       if (this.aacSequenceHeader && rtmpBody[1] === 0) {
         //skip aac sequence header
       } else {
@@ -729,24 +746,10 @@ export class NodeRtmpSession extends EventEmitter {
       }
     }
 
-    for (const playerId of this.rtmpPlayers) {
-      const session = this.sessions.get(playerId);
-
-      if (session instanceof NodeRtmpSession) {
-        rtmpMessage.writeUInt32LE(session.playStreamId, 8);
-        session.socket.write(rtmpMessage);
-      }
-    }
-    for (const playerId of this.httpPlayers) {
-      const session = this.sessions.get(playerId);
-
-      if (session instanceof NodeFlvSession) {
-        session.write(flvMessage);
-      }
-    }
+    this.broadcast(rtmpMessage, flvMessage);
   }
 
-  private handleVideoMessage(rtmpHeader, rtmpBody) {
+  private handleVideoMessage(rtmpHeader: any, rtmpBody: Buffer) {
     if (!this.isPublishing) {
       return;
     }
@@ -781,7 +784,11 @@ export class NodeRtmpSession extends EventEmitter {
     const rtmpMessage = this.createRtmpMessage(rtmpHeader, rtmpBody);
     const flvMessage = NodeFlvSession.createFlvMessage(rtmpHeader, rtmpBody);
 
-    if ((codec_id === 7 || codec_id === 12) && this.rtmpGopCacheQueue) {
+    if (
+      (codec_id === 7 || codec_id === 12) &&
+      this.rtmpGopCacheQueue &&
+      this.flvGopCacheQueue
+    ) {
       if (frame_type === 1 && rtmpBody[1] === 1) {
         this.rtmpGopCacheQueue.clear();
         this.flvGopCacheQueue.clear();
@@ -794,10 +801,22 @@ export class NodeRtmpSession extends EventEmitter {
       }
     }
 
+    this.broadcast(rtmpMessage, flvMessage);
+  }
+
+  private broadcast(rtmpMessage: Buffer, flvMessage: Buffer) {
+    const slowPlayers: (NodeRtmpSession | NodeFlvSession)[] = [];
+
     for (const playerId of this.rtmpPlayers) {
       const session = this.sessions.get(playerId);
 
       if (session instanceof NodeRtmpSession) {
+        if (session.socket.writableLength > MAX_OUTBOUND_BUFFER_BYTES) {
+          slowPlayers.push(session);
+
+          continue;
+        }
+
         rtmpMessage.writeUInt32LE(session.playStreamId, 8);
         session.socket.write(rtmpMessage);
       }
@@ -807,12 +826,25 @@ export class NodeRtmpSession extends EventEmitter {
       const session = this.sessions.get(playerId);
 
       if (session instanceof NodeFlvSession) {
+        if (session.isOverBuffered()) {
+          slowPlayers.push(session);
+
+          continue;
+        }
+
         session.write(flvMessage);
       }
     }
+
+    for (const session of slowPlayers) {
+      console.log(
+        `[broadcast] disconnecting slow player ${session.id} on ${this.streamPath}`,
+      );
+      session.stop();
+    }
   }
 
-  private sendACK(size) {
+  private sendACK(size: number) {
     const rtmpBuffer = Buffer.from('02000000000004030000000000000000', 'hex');
 
     rtmpBuffer.writeUInt32BE(size, 12);
@@ -820,7 +852,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.socket.write(rtmpBuffer);
   }
 
-  private sendWindowACK(size) {
+  private sendWindowACK(size: number) {
     const rtmpBuffer = Buffer.from('02000000000004050000000000000000', 'hex');
 
     rtmpBuffer.writeUInt32BE(size, 12);
@@ -828,7 +860,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.socket.write(rtmpBuffer);
   }
 
-  private setPeerBandwidth(size, type) {
+  private setPeerBandwidth(size: number, type: number) {
     const rtmpBuffer = Buffer.from('0200000000000506000000000000000000', 'hex');
 
     rtmpBuffer.writeUInt32BE(size, 12);
@@ -837,7 +869,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.socket.write(rtmpBuffer);
   }
 
-  private setChunkSize(size) {
+  private setChunkSize(size: number) {
     const rtmpBuffer = Buffer.from('02000000000004010000000000000000', 'hex');
 
     rtmpBuffer.writeUInt32BE(size, 12);
@@ -845,7 +877,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.socket.write(rtmpBuffer);
   }
 
-  private sendStreamStatus(st, id) {
+  private sendStreamStatus(st: number, id: number) {
     const rtmpBuffer = Buffer.from(
       '020000000000060400000000000000000000',
       'hex',
@@ -876,7 +908,12 @@ export class NodeRtmpSession extends EventEmitter {
     this.socket.write(rtmpMessage);
   }
 
-  private sendStatusMessage(id, level, code, description) {
+  private sendStatusMessage(
+    id: number,
+    level: string,
+    code: string,
+    description: string,
+  ) {
     const rtmpHeader = {
       chunkStreamID: 5,
       timestamp: 0,
@@ -948,7 +985,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.socket.write(rtmpMessage);
   }
 
-  private respondCreateStream(cmd) {
+  private respondCreateStream(cmd: any) {
     this.streams++;
     const rtmpHeader = {
       chunkStreamID: 3,
@@ -985,7 +1022,7 @@ export class NodeRtmpSession extends EventEmitter {
     this.sendRtmpSampleAccess();
   }
 
-  protected onConnect(cmdObj) {
+  protected onConnect(cmdObj: any) {
     cmdObj.app = cmdObj.app.replace('/', '');
 
     this.nodeEvent.emit('preConnect', this.id, cmdObj);
@@ -1062,7 +1099,7 @@ export class NodeRtmpSession extends EventEmitter {
       );
 
       for (const idlePlayerId of this.idlePlayers) {
-        const idlePlayer = this.sessions.get(idlePlayerId);
+        const idlePlayer = this.sessions.get(idlePlayerId)!;
 
         if (idlePlayer.streamPath === this.streamPath) {
           idlePlayer.emit('play');
@@ -1118,8 +1155,8 @@ export class NodeRtmpSession extends EventEmitter {
       } else {
         this.respondPlay();
       }
-      const publisherPath = this.publishers.get(this.streamPath);
-      const publisher = this.sessions.get(publisherPath);
+      const publisherPath = this.publishers.get(this.streamPath)!;
+      const publisher = this.sessions.get(publisherPath)!;
       const rtmpPlayers = publisher.rtmpPlayers;
 
       this.isPlaying = true;
@@ -1198,7 +1235,7 @@ export class NodeRtmpSession extends EventEmitter {
     }
   }
 
-  private onCloseStream(streamID, del = undefined) {
+  private onCloseStream(streamID: number, del = false) {
     if (this.isIdling && this.playStreamId === streamID) {
       this.sendStatusMessage(
         this.playStreamId,
@@ -1221,7 +1258,7 @@ export class NodeRtmpSession extends EventEmitter {
       const publisherPath = this.publishers.get(this.streamPath);
 
       if (publisherPath) {
-        this.sessions.get(publisherPath).rtmpPlayers.delete(this.id);
+        this.sessions.get(publisherPath)!.rtmpPlayers.delete(this.id);
       }
       this.isPlaying = false;
       this.playStreamId = del ? 0 : this.playStreamId;
@@ -1264,7 +1301,7 @@ export class NodeRtmpSession extends EventEmitter {
 
       //let the players to idlePlayers
       for (const playerId of this.rtmpPlayers) {
-        const player = this.sessions.get(playerId);
+        const player = this.sessions.get(playerId)!;
 
         this.idlePlayers.add(playerId);
         player.isPlaying = false;
@@ -1276,7 +1313,7 @@ export class NodeRtmpSession extends EventEmitter {
       }
 
       for (const playerId of this.httpPlayers) {
-        const player = this.sessions.get(playerId);
+        const player = this.sessions.get(playerId)!;
 
         this.idlePlayers.add(playerId);
         player.isPlaying = false;
@@ -1298,7 +1335,7 @@ export class NodeRtmpSession extends EventEmitter {
     }
   }
 
-  private onDeleteStream(streamID) {
+  private onDeleteStream(streamID: number) {
     this.onCloseStream(streamID, true);
   }
 }

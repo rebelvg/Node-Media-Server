@@ -17,15 +17,28 @@ export enum ProtocolsEnum {
   WS = 'ws',
 }
 
+// Disconnect a subscriber whose outbound buffer exceeds this, so a slow or
+// dead viewer can't make the publisher accumulate unbounded memory. Tunable.
+const MAX_OUTBOUND_BUFFER_BYTES = 16 * 1024 * 1024;
+
+// HTTP-FLV: TCP keepalive probe delay. Surfaces a dead peer that never sent a
+// clean FIN so the session gets torn down instead of being written to forever.
+const HTTP_FLV_KEEPALIVE_MS = 30000;
+
+// WS: ping/pong heartbeat interval. A peer that misses a pong is terminated.
+const WS_HEARTBEAT_INTERVAL_MS = 30000;
+
 export class NodeFlvSession extends EventEmitter {
   protected readonly bp: BufferPool;
-  public streamPath: string;
-  public streamArgs: ParsedUrlQuery;
+  public streamPath!: string;
+  public streamArgs!: ParsedUrlQuery;
   protected connectCmdObj: any;
   public isActive = false;
   public readonly connectTime = new Date();
   public sessionType = SessionTypeEnum.CONNECTED;
   protected sessionMetadata: any = {};
+  private wsIsAlive = true;
+  private wsHeartbeatInterval: NodeJS.Timeout | null = null;
 
   constructor(
     public readonly id: string,
@@ -52,6 +65,12 @@ export class NodeFlvSession extends EventEmitter {
       this.req.on('data', this.onReqData.bind(this));
       this.req.socket.on('close', this.onReqClose.bind(this));
       this.req.on('error', this.onReqError.bind(this));
+
+      // Surface a dead HTTP-FLV peer that never sends a clean FIN; otherwise
+      // the publisher keeps buffering media into a socket that never drains.
+      // Backpressure in write() bounds the buffer; keepalive probes get a
+      // truly dead peer's socket closed without kicking a live idle viewer.
+      this.req.socket.setKeepAlive(true, HTTP_FLV_KEEPALIVE_MS);
     }
 
     if (this.protocol === ProtocolsEnum.WS) {
@@ -59,7 +78,27 @@ export class NodeFlvSession extends EventEmitter {
       this.res.on('close', this.onReqClose.bind(this));
       this.res.on('error', this.onReqError.bind(this));
 
-      this.res.end = this.res['close'];
+      this.res.end = (this.res as any).close;
+
+      // Heartbeat: a WS peer can stop draining without the socket ever
+      // emitting close. Ping it and terminate if it misses a pong, so we
+      // stop writing media into a dead connection. A live client auto-pongs,
+      // so an idle-but-alive viewer is left alone.
+      this.res.on('pong', () => {
+        this.wsIsAlive = true;
+      });
+      this.wsHeartbeatInterval = setInterval(() => {
+        if (!this.wsIsAlive) {
+          console.log(`[ws] heartbeat timeout ${this.id}`);
+          this.stop();
+          (this.res as any).terminate();
+
+          return;
+        }
+
+        this.wsIsAlive = false;
+        (this.res as any).ping();
+      }, WS_HEARTBEAT_INTERVAL_MS);
     }
 
     this.sessionType = SessionTypeEnum.ACCEPTED;
@@ -77,7 +116,41 @@ export class NodeFlvSession extends EventEmitter {
     };
   }
 
+  public isOverBuffered(): boolean {
+    switch (this.protocol) {
+      case ProtocolsEnum.HTTP: {
+        const socket = this.res.socket;
+        const buffered =
+          (socket ? socket.writableLength : 0) +
+          ((this.res as any).outputSize || 0);
+
+        return buffered > MAX_OUTBOUND_BUFFER_BYTES;
+      }
+      case ProtocolsEnum.WS: {
+        return (
+          ((this.res as any).bufferedAmount || 0) > MAX_OUTBOUND_BUFFER_BYTES
+        );
+      }
+      default: {
+        return false;
+      }
+    }
+  }
+
   public write(data: Buffer) {
+    if (!this.isActive) {
+      return;
+    }
+
+    // Disconnect a viewer that can't keep up instead of buffering media for
+    // it without bound (the main source of the memory leak).
+    if (this.isOverBuffered()) {
+      console.log(`[${this.protocol}] slow player ${this.id}, disconnecting`);
+      this.stop();
+
+      return;
+    }
+
     switch (this.protocol) {
       case ProtocolsEnum.HTTP: {
         this.res.write(data);
@@ -85,7 +158,7 @@ export class NodeFlvSession extends EventEmitter {
         break;
       }
       case ProtocolsEnum.WS: {
-        this.res['send'](data, null, () => {
+        (this.res as any).send(data, null, () => {
           // ws requires a callback
         });
 
@@ -97,7 +170,7 @@ export class NodeFlvSession extends EventEmitter {
     }
   }
 
-  public addMetadata(data) {
+  public addMetadata(data: any) {
     this.sessionMetadata = {
       ...this.sessionMetadata,
       ...data,
@@ -110,8 +183,8 @@ export class NodeFlvSession extends EventEmitter {
 
   public run() {
     const method = this.req.method;
-    const urlInfo = url.parse(this.req.url, true);
-    const [streamPath, format] = urlInfo.pathname.split('.');
+    const urlInfo = url.parse(this.req.url || '', true);
+    const [streamPath, format] = (urlInfo.pathname || '').split('.');
 
     this.connectCmdObj = { method, streamPath, query: urlInfo.query };
     this.nodeEvent.emit('preConnect', this.id, this.connectCmdObj);
@@ -148,7 +221,7 @@ export class NodeFlvSession extends EventEmitter {
     }
   }
 
-  private onReqData(data) {
+  private onReqData(data: Buffer) {
     this.bp.push(data);
   }
 
@@ -156,7 +229,7 @@ export class NodeFlvSession extends EventEmitter {
     this.stop();
   }
 
-  private onReqError(e) {
+  private onReqError(e: Error) {
     this.stop();
   }
 
@@ -171,7 +244,7 @@ export class NodeFlvSession extends EventEmitter {
     this.stop();
   }
 
-  protected *handleData() {
+  protected *handleData(): Generator<void, void, boolean> {
     console.log(`[${this.protocol} message parser] start`);
 
     while (this.isActive) {
@@ -179,15 +252,29 @@ export class NodeFlvSession extends EventEmitter {
         if (yield) {
           break;
         }
+      } else {
+        // A subscriber should never send a payload; discard anything it does
+        // so we neither busy-spin nor accumulate it in the buffer pool.
+        this.bp.read(this.bp.poolBytes);
       }
     }
 
     console.log(`[${this.protocol} message parser] done`);
 
+    if (this.wsHeartbeatInterval) {
+      clearInterval(this.wsHeartbeatInterval);
+      this.wsHeartbeatInterval = null;
+    }
+
     const publisherId = this.publishers.get(this.streamPath);
 
     if (publisherId) {
-      this.sessions.get(publisherId).httpPlayers.delete(this.id);
+      const publisher = this.sessions.get(publisherId);
+
+      if (publisher) {
+        publisher.httpPlayers.delete(this.id);
+      }
+
       this.nodeEvent.emit(
         'donePlay',
         this.id,
@@ -200,6 +287,7 @@ export class NodeFlvSession extends EventEmitter {
     this.res.end();
     this.idlePlayers.delete(this.id);
     this.sessions.delete(this.id);
+    this.bp.destroy();
   }
 
   protected onConnect() {
@@ -224,8 +312,8 @@ export class NodeFlvSession extends EventEmitter {
       return;
     }
 
-    const publisherId = this.publishers.get(this.streamPath);
-    const publisher = this.sessions.get(publisherId);
+    const publisherId = this.publishers.get(this.streamPath)!;
+    const publisher = this.sessions.get(publisherId)!;
     const httpPlayers = publisher.httpPlayers;
 
     httpPlayers.add(this.id);
@@ -237,18 +325,7 @@ export class NodeFlvSession extends EventEmitter {
 
     //send FLV header
     const FLVHeader = Buffer.from([
-      0x46,
-      0x4c,
-      0x56,
-      0x01,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x09,
-      0x00,
-      0x00,
-      0x00,
+      0x46, 0x4c, 0x56, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00,
       0x00,
     ]);
 
@@ -323,7 +400,7 @@ export class NodeFlvSession extends EventEmitter {
     // empty
   }
 
-  static createFlvMessage(rtmpHeader, rtmpBody) {
+  static createFlvMessage(rtmpHeader: any, rtmpBody: Buffer) {
     const FLVTagHeader = Buffer.alloc(11);
 
     FLVTagHeader[0] = rtmpHeader.messageTypeID;
